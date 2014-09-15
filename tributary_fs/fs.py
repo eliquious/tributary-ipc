@@ -4,7 +4,7 @@ from tributary.utilities import validateType
 
 import os, glob, re
 
-__all__ = ['FileStream', 'RecursiveFileStream', 'GlobStream', 'DelimFileStream']
+__all__ = ['FileStream', 'RecursiveFileStream', 'GlobFileStream', 'DelimFileStream']
 
 class FileStream(StreamProducer):
     """FileStream is a base class for all data sources which come from files."""
@@ -21,16 +21,17 @@ class RecursiveFileStream(FileStream):
     def _add_file(self, arg, dirname, fnames):
         for name in fnames:
             self.scatter(Message(filename="%s/%s" % (dirname, name)))
+            self.tick()
 
-    def process(self, _input):
+    def process(self, msg):
         os.path.walk(self.filename, self._add_file, 0)
 
-class GlobStream(FileStream):
+class GlobFileStream(FileStream):
     """GlobStream fetches all files matching the glob string"""
     def __init__(self, name, glob_string):
-        super(GlobStream, self).__init__(name, glob_string)
+        super(GlobFileStream, self).__init__(name, glob_string)
 
-    def process(self, input):
+    def process(self, msg):
         self.log("Globbing %s"% self.filename)
         filenames = glob.glob(self.filename)
         self.log("Found %i matching files" % len(filenames))
@@ -66,10 +67,9 @@ class DelimFileStream(FileStream):
                         * If `cols` is given, then `has_header` is automatically set to **False**.
                         * `comment_char` can be set to None to forfeit the functionality.
                         * If `cols` is **None** and `has_header` is **False**, the data is loaded as 'Column_1', 'Column_2', etc.
-
         """
         def __init__(self, name, filename, delim=",", cols=None, skip_pre_header_lines=0,
-                        skip_post_header_lines=0, has_header=True, comment_char="#", skip_lines_without_delim=True):
+                        skip_post_header_lines=0, has_header=True, comment_char="#", skip_lines_without_delim=True, batch=False):
             super(DelimFileStream, self).__init__(name, filename)
 
             self.delim = delim
@@ -79,6 +79,7 @@ class DelimFileStream(FileStream):
             self.has_header = has_header
             self.comment_char = comment_char
             self.skip_lines_without_delim = skip_lines_without_delim
+            self.batch = batch
 
             if cols is not None:
                 self.has_header = False
@@ -91,7 +92,7 @@ class DelimFileStream(FileStream):
             else:
                 return line.strip().split()
 
-        def process(self, input):
+        def process(self, msg):
 
             # open file
             with open(self.filename, "r") as fh:
@@ -115,6 +116,9 @@ class DelimFileStream(FileStream):
                 # compile regex of delim
                 regexp = re.compile(self.delim)
                 
+                if self.batch:
+                    results = []
+
                 # read lines in file
                 for line in fh:
 
@@ -138,15 +142,22 @@ class DelimFileStream(FileStream):
                     if self.cols is not None:
                         for i, col in enumerate(self.cols):
                             if i < field_count:
-                                data.set(col, fields[i].strip()) #I don't think it'll harm anything to strip whitespace here
+                                data[col] =  fields[i].strip() #I don't think it'll harm anything to strip whitespace here
                             else:
-                                data.set(col, None)
+                                data[col] = None
                     else:
 
                         # for unstructured data, cols is None and has_header is False
                         for i, field in enumerate(fields):
-                            data.set("Column_" + str(i + 1), fields[i].strip()) #I don't think it'll harm anything to strip whitespace here
+                            data["Column_" + str(i + 1)] = fields[i].strip() #I don't think it'll harm anything to strip whitespace here
 
-                    # send message
-                    self.scatter(Message(**data))
+                    if not self.batch:
+                        # send message
+                        self.scatter(Message(**data))
+                    else:
+                        results.append(Message(**data))
+
+                if self.batch:
+                    self.emitBatch('data', results)
+
 

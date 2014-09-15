@@ -22,10 +22,10 @@ setup(
     url='http://www.synapse-wireless.com',
     packages=['tributary_fs'],
     # data_files=[('share/doc/tributary', ['README.rst'])],
-    entry_points={
+    # entry_points={
         # 'console_scripts': ['sample = sample.main:_main']
-        'tributary': '.fs = tributary_fs'
-    },
+        # 'tributary': '.fs = tributary_fs'
+    # },
     setup_requires=['vcversioner'],
     vcversioner={
         'version_module_paths': ['tributary_fs/_version.py'],
