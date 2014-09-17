@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup
-import tributary_fs
+import fs
 
 with open('README.md', 'r') as f:
     long_description = f.read()
@@ -14,20 +14,20 @@ with open('test-requirements.txt', 'r') as f:
     test_requires = [x for x in list(f) if x[0:2] != '-r']
 
 setup(
-    name=tributary_fs.__name__,
-    description=tributary_fs.__doc__,
+    name='tributary_fs',
+    description=fs.__doc__,
     long_description=long_description,
     maintainer='Max Franks',
     maintainer_email='max.franks@synapse-wireless.com',
     url='http://www.synapse-wireless.com',
-    packages=['tributary_fs'],
+    packages=['fs'],
     # data_files=[('share/doc/tributary', ['README.rst'])],
     entry_points={
-        'tributary.ext': '.fs = tributary_fs'
+        'tributary.ext': '.fs = fs'
     },
     setup_requires=['vcversioner'],
     vcversioner={
-        'version_module_paths': ['tributary_fs/_version.py'],
+        'version_module_paths': ['fs/_version.py'],
         'vcs_args': ['git', '--git-dir', '%(root)s/.git', 'describe',
                   '--tags', '--long'],
     },
