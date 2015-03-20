@@ -1,12 +1,12 @@
 from tributary.streams import StreamProducer, StreamElement
 from tributary.core import Message, Engine
 from tributary.utilities import validateType
-from tributary.events import StopMessage, STOP
+from tributary.events import StopMessage, STOP, START
 
 import gipc
 import os, glob, re
 
-__all__ = ['BaseEngineFactory', 'SimpleEngineFactory', 'IPCProducer']
+__all__ = ['BaseEngineFactory', 'SimpleEngineFactory', 'IPCDispatcher', 'IPCSubscriber']
 
 class BaseEngineFactory(object):
     """EngineFactories produce engines for child processes. The 'create' method 
@@ -15,7 +15,7 @@ class BaseEngineFactory(object):
     one argument as a duplex pipe to read and write to the parent process.
     """
     def __init__(self):
-        super(EngineFactory, self).__init__()
+        super(BaseEngineFactory, self).__init__()
 
     def create(self):
         raise NotImplementedError("'EngineFactory.create' not implemented")
@@ -32,15 +32,18 @@ class SimpleEngineFactory(BaseEngineFactory):
         to read and write to the parent process."""
         return self.function
 
-class IPCChild(StreamProducer):
-    """IPCChild"""
+class IPCSubscriber(StreamProducer):
+    """IPCSubscriber"""
     def __init__(self, name, pipe):
-        super(IPCChild, self).__init__(name)
+        super(IPCSubscriber, self).__init__(name)
         self.pipe = pipe
 
     def process(self, msg):
-        """Can be overridden."""
-        pass
+        self.scatter(msg)
+
+    # def postProcess(self, msg):
+        # self.log("Stopping child nodes...")
+        # self.running = False
 
     def execute(self):
         """Handles the data flow for IPC"""
@@ -53,42 +56,71 @@ class IPCChild(StreamProducer):
             try:
                 message = self.pipe.get()
 
+                # This needs to go here
+                # If 'handle' processes the message 
+                #   it will go to postProcess and running will be set to false.
+                # However, the get() method above will block before the while statement is executed again
+                if message.channel == STOP:
+                    self.log('Exiting event loop...')
+                    self.stop()
+                    break
+
                 # handles message just like any other actor
                 self.handle(message)
 
+            except gevent.Timeout:
+                pass
             except Exception:
                 tributary.log_exception(self.name, "Error in '%s': %s" % (self.__class__.__name__, self.name))
                 self.tick()
 
         self.log("Exiting...")
 
-class IPCParent(StreamElement):
-    """docstring for ClassName"""
+class IPCDispatcher(StreamElement):
+    """IPCDispatcher"""
     def __init__(self, name, factory):
-        super(ClassName, self).__init__(name)
+        super(IPCDispatcher, self).__init__(name)
+        self.factory = factory
 
         # create pipes
         cend, pipe = gipc.pipe(duplex=True)
         self.pipe = pipe
 
         # create child
-        self.child = gipc.start_process(factory.create(), args=(cend,))
+        self.child = gipc.start_process(self.factory.create(), args=(cend,))
+        self.log('Started child process')
 
+        # register on start
+        self.on(START, self.onStart)
+
+        # register on stop
+        self.on(STOP, self.onStop)
+
+        self.registered = False
+
+    def onStart(self, msg):
+        
         # any child initialization logic
-        self.onConnection()
+        if not self.registered:
+            self.registered = True
+            self.onConnection()
 
-        # register on close
-        self.on(events.STOP, self.onClose)
 
     def onConnection(self):
         """"""
         pass
 
     def onClose(self):
+        """"""
+        pass
+
+    def onStop(self, msg=None):
         """Called after the child is joined"""
         self.log('Stopping child process')
         self.pipe.put(StopMessage)
 
         self.log('Waiting for child process to stop')
         self.child.join()
-        self.log('Child process stopped')
+
+        # allow user actions
+        self.onClose()
